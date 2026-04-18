@@ -1943,8 +1943,8 @@ function saveFactura(){
     cliente_id:clId,cliente_nm:cl.nombre||'',
     cliente_rnc:document.getElementById('fac-rnc-cl')?.value||'',
     cliente_razon:document.getElementById('fac-razon-cl')?.value||cl.nombre||'',
-    fecha:document.getElementById('fac-fecha').value,
-    vence:document.getElementById('fac-vence').value,
+    fecha:document.getElementById('fac-fecha').value||null,
+    vence:document.getElementById('fac-vence').value||null,
     items:facItems.map(it=>({...it})),
     subtotal:sub,descuento:desc,
     itbis:itbisAmt,itbisPct:DB.config.itbisPct||18,itbisActivo,
@@ -2101,7 +2101,7 @@ function saveCobro(){
     cliente_id:fac.cliente_id||'',cliente_nm:fac.cliente_nm||'',
     monto,metodo:document.getElementById('cob-metodo').value,
     ref:document.getElementById('cob-ref').value,
-    fecha:document.getElementById('cob-fecha').value,
+    fecha:document.getElementById('cob-fecha').value||null,
     notas:document.getElementById('cob-notas').value,
     ts:Date.now()
   };
@@ -2616,18 +2616,18 @@ function savePedido(){
   const rutaId=document.getElementById('ped-ruta').value;
   const p={
     id:editId||String(Date.now()),
-    ruta_id:rutaId,
-    chofer_id:choferId,
+    ruta_id:rutaId||null,
+    chofer_id:choferId||null,
     chofer_nm:choferUser.nombre||'',
     cliente_id:clId,cliente_nm:cl.nombre||'',
     cliente_dir:cl.direccion||'',cliente_tel:cl.tel||'',
-    fecha:document.getElementById('ped-fecha').value,
+    fecha:document.getElementById('ped-fecha').value||null,
     items:pedItems.map(it=>({...it})),
     subtotal:sub,total:sub,
     modalidad:pedModalidad,
     metodo:pedModalidad==='contado'?document.getElementById('ped-metodo').value:'',
     dias_credito:pedModalidad==='credito'?parseInt(document.getElementById('ped-dias-cred').value)||30:0,
-    vence:pedModalidad==='credito'?document.getElementById('ped-vence-cred').value:'',
+    vence:pedModalidad==='credito'?(document.getElementById('ped-vence-cred').value||null):null,
     estado:'pendiente',
     notas:document.getElementById('ped-notas').value,
   };
@@ -2916,7 +2916,7 @@ function saveGasto(){
     descripcion:desc,
     cat:document.getElementById('gst-cat').value,
     monto,
-    fecha:document.getElementById('gst-fecha').value,
+    fecha:document.getElementById('gst-fecha').value||null,
     proveedor:document.getElementById('gst-proveedor').value,
     rnc_proveedor:document.getElementById('gst-rnc-prov').value.trim(),
     metodo:document.getElementById('gst-metodo').value,
@@ -3501,23 +3501,25 @@ async function initTrackingPanel(){
   setupTrackRealtime();
   // Auto-refresh every 30s
   clearInterval(nxRefreshTimer);
-  nxRefreshTimer=setInterval(trackLoadData,30000);
+  nxRefreshTimer=setInterval(trackLoadData,15000);
 }
 
 async function trackLoadData(){
   const sb=getSB(); if(!sb) return;
   const hoy=new Date().toISOString().split('T')[0];
   try{
-    const [gps,peds,cobs,rts]=await Promise.all([
+    const [gps,peds,cobs,rts,usrs]=await Promise.all([
       sb.from('gps_tracks').select('*').order('updated_at',{ascending:false}),
       sb.from('pedidos').select('*').eq('fecha',hoy),
       sb.from('cobros').select('*').eq('fecha',hoy),
-      sb.from('rutas').select('*')
+      sb.from('rutas').select('*'),
+      sb.from('usuarios').select('*')
     ]);
     trackChoferes=gps.data||[];
     trackPedidos=peds.data||[];
     trackCobs=cobs.data||[];
     trackRutas=rts.data||[];
+    if(usrs.data&&usrs.data.length) DB.usuarios=usrs.data;
     // Sync fresh pedido states back to local DB so rutas panel updates live
     if(peds.data){
       peds.data.forEach(fresh=>{
@@ -3700,14 +3702,19 @@ function setupTrackRealtime(){
       renderTrackPanel();
       updateNxMap();
     })
-    .on('postgres_changes',{event:'UPDATE',schema:'public',table:'pedidos'},payload=>{
+    .on('postgres_changes',{event:'*',schema:'public',table:'pedidos'},payload=>{
       // Update trackPedidos live when chofer changes estado
-      const idx=trackPedidos.findIndex(p=>p.id===payload.new?.id);
-      if(idx>=0) trackPedidos[idx]={...trackPedidos[idx],...payload.new};
-      else if(payload.new) trackPedidos.push(payload.new);
-      // Also update local DB.pedidos so rutas panel reflects change
-      const dbIdx=DB.pedidos.findIndex(p=>p.id===payload.new?.id);
-      if(dbIdx>=0) DB.pedidos[dbIdx]={...DB.pedidos[dbIdx],...payload.new};
+      if(payload.eventType==='DELETE'){
+        trackPedidos=trackPedidos.filter(p=>p.id!==payload.old?.id);
+      } else {
+        const idx=trackPedidos.findIndex(p=>p.id===payload.new?.id);
+        if(idx>=0) trackPedidos[idx]={...trackPedidos[idx],...payload.new};
+        else if(payload.new) trackPedidos.push(payload.new);
+        // Also update local DB.pedidos so rutas panel reflects change
+        const dbIdx=DB.pedidos.findIndex(p=>p.id===payload.new?.id);
+        if(dbIdx>=0) DB.pedidos[dbIdx]={...DB.pedidos[dbIdx],...payload.new};
+        else if(payload.new) DB.pedidos.push(payload.new);
+      }
       renderTrackPanel();
       // If rutas panel is open, refresh it too
       if(curPage==='rutas') renderRutas();
