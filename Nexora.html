@@ -624,7 +624,7 @@ td{padding:10px 12px;font-size:13px;color:var(--ink2)}
     <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--ink4);margin-right:2px">Ruta:</span>
     <button class="btn sm" id="ruta-tab-all" onclick="setRutaTab('all',this)" style="border-radius:20px;background:var(--pearl);border-color:var(--pearl);color:#fff">Todas</button>
     <div id="ruta-tabs-list" style="display:flex;gap:6px;flex-wrap:wrap"></div>
-    <button class="btn sm" onclick="openM('m-nueva-ruta')" style="border-radius:20px;border-style:dashed">+ Ruta</button>
+    <button class="btn sm" onclick="openNuevaRuta()" style="border-radius:20px;border-style:dashed">+ Ruta</button>
   </div>
   <div id="pedidos-board"></div>
 </div>
@@ -945,7 +945,7 @@ CREATE TABLE IF NOT EXISTS pedidos (id text PRIMARY KEY, ruta_id text, cliente_i
     <div class="ph-left"><div class="ph-title">Tracking de Choferes</div><div class="ph-sub">GPS en tiempo real</div></div>
     <div class="ph-acts">
       <button class="btn" id="track-refresh-btn" onclick="trackRefresh()">🔄 Actualizar</button>
-      <button class="btn p" onclick="openM('m-nueva-ruta')">+ Nueva ruta</button>
+      <button class="btn p" onclick="openNuevaRuta()">+ Nueva ruta</button>
     </div>
   </div>
   <!-- Status bar -->
@@ -2671,15 +2671,30 @@ function saveRuta(){
   sbSave('rutas',r);closeM('m-nueva-ruta');renderRutas();toast('✓ Ruta guardada','ok');
 }
 
+function populateChoferSel(selectedNombre=''){
+  const sel=document.getElementById('ruta-chofer-sel');
+  if(!sel) return;
+  // Show ALL users regardless of role
+  sel.innerHTML='<option value="">— Seleccionar chofer —</option>'+
+    DB.usuarios.map(u=>`<option value="${u.id}"${u.nombre===selectedNombre?' selected':''}>${u.nombre} (${u.rol})</option>`).join('');
+}
+
+function openNuevaRuta(){
+  document.getElementById('ruta-edit-id').value='';
+  document.getElementById('ruta-nombre').value='';
+  document.getElementById('ruta-dias').value='';
+  document.getElementById('ruta-desc').value='';
+  populateChoferSel();
+  openM('m-nueva-ruta');
+}
+
 function editRuta(id){
   const r=DB.rutas.find(x=>x.id===id);if(!r)return;
   document.getElementById('ruta-edit-id').value=r.id;
   document.getElementById('ruta-nombre').value=r.nombre||'';
   document.getElementById('ruta-dias').value=r.dias||'';
   document.getElementById('ruta-desc').value=r.descripcion||'';
-  // Populate chofer select
-  const sel=document.getElementById('ruta-chofer-sel');
-  if(sel){sel.innerHTML='<option value="">— Seleccionar chofer —</option>'+DB.usuarios.map(u=>`<option value="${u.id}"${u.nombre===r.chofer?' selected':''}>${u.nombre}</option>`).join('');}
+  populateChoferSel(r.chofer||'');
   openM('m-nueva-ruta');
 }
 
