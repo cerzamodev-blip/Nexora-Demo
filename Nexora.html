@@ -900,7 +900,7 @@ CREATE TABLE IF NOT EXISTS facturas (id text PRIMARY KEY, numero text, cliente_i
 CREATE TABLE IF NOT EXISTS cobros (id text PRIMARY KEY, factura_id text, factura_num text, cliente_id text, cliente_nm text, monto numeric, metodo text, ref text, fecha date, notas text, chofer_id text, chofer_nm text, ts bigint, created_at timestamptz DEFAULT now(), updated_at timestamptz);
 CREATE TABLE IF NOT EXISTS productos (id text PRIMARY KEY, nombre text, descripcion text, unidad text, precio numeric, activo bool, created_at timestamptz DEFAULT now(), updated_at timestamptz);
 CREATE TABLE IF NOT EXISTS rutas (id text PRIMARY KEY, nombre text, descripcion text, dias text, chofer text, created_at timestamptz DEFAULT now(), updated_at timestamptz);
-CREATE TABLE IF NOT EXISTS gastos (id text PRIMARY KEY, desc text, cat text, monto numeric, fecha date, proveedor text, rnc_proveedor text, metodo text, ncf_activo bool, ncf_tipo text, ncf text, notas text, ts bigint, created_at timestamptz DEFAULT now(), updated_at timestamptz);
+CREATE TABLE IF NOT EXISTS gastos (id text PRIMARY KEY, descripcion text, cat text, monto numeric, fecha date, proveedor text, rnc_proveedor text, metodo text, ncf_activo bool, ncf_tipo text, ncf text, notas text, ts bigint, created_at timestamptz DEFAULT now(), updated_at timestamptz);
 CREATE TABLE IF NOT EXISTS usuarios (id text PRIMARY KEY, nombre text, rol text, pin text, created_at timestamptz DEFAULT now(), updated_at timestamptz);
 CREATE TABLE IF NOT EXISTS gps_tracks (id text PRIMARY KEY, chofer_id text, chofer_nm text, lat numeric, lng numeric, ts bigint, created_at timestamptz DEFAULT now(), updated_at timestamptz);
 CREATE TABLE IF NOT EXISTS pedidos (id text PRIMARY KEY, ruta_id text, cliente_id text, cliente_nm text, cliente_dir text, cliente_tel text, fecha date, items jsonb, subtotal numeric, total numeric, modalidad text, metodo text, dias_credito int, vence date, estado text, notas text, ts bigint, created_at timestamptz DEFAULT now(), updated_at timestamptz);</pre>
@@ -973,6 +973,9 @@ CREATE TABLE IF NOT EXISTS pedidos (id text PRIMARY KEY, ruta_id text, cliente_i
     </div><!-- /main-wrap -->
   </div><!-- /app-body -->
 </div><!-- /app -->
+
+<!-- ══ TOAST ══ -->
+<div class="toast" id="toast"></div>
 
 <!-- ══════════ MODALS ══════════ -->
 
@@ -1446,14 +1449,14 @@ let DB={
 
 const SB_TABLES={clientes:'clientes',facturas:'facturas',cobros:'cobros',productos:'productos',rutas:'rutas',pedidos:'pedidos',gastos:'gastos',usuarios:'usuarios'};
 const SB_COLS={
-  clientes:['id','nombre','rnc','tel','email','direccion','ruta','credito_dias','notas','activo','ts'],
-  facturas:['id','numero','cliente_id','cliente_nm','cliente_rnc','cliente_razon','fecha','vence','items','subtotal','descuento','itbis','itbisPct','itbisActivo','impuesto','total','ncf','ncfTipo','pagado','saldo','estado','notas','ts'],
-  cobros:['id','factura_id','factura_num','cliente_id','cliente_nm','monto','metodo','ref','fecha','notas','ts'],
-  productos:['id','nombre','descripcion','unidad','precio','activo'],
-  rutas:['id','nombre','descripcion','dias','chofer'],
-  pedidos:['id','ruta_id','cliente_id','cliente_nm','cliente_dir','cliente_tel','fecha','items','subtotal','total','modalidad','metodo','dias_credito','vence','estado','notas','ts'],
-  gastos:['id','desc','cat','monto','fecha','proveedor','rnc_proveedor','metodo','ncf_activo','ncf_tipo','ncf','notas','ts'],
-  usuarios:['id','nombre','rol','pin'],
+  clientes:['id','nombre','rnc','tel','email','direccion','ruta','credito_dias','notas','activo','ts','created_at','updated_at'],
+  facturas:['id','numero','cliente_id','cliente_nm','cliente_rnc','cliente_razon','fecha','vence','items','subtotal','descuento','itbis','itbisPct','itbisActivo','impuesto','total','ncf','ncfTipo','pagado','saldo','estado','notas','ts','created_at','updated_at'],
+  cobros:['id','factura_id','factura_num','cliente_id','cliente_nm','monto','metodo','ref','fecha','notas','ts','created_at','updated_at'],
+  productos:['id','nombre','descripcion','unidad','precio','activo','created_at','updated_at'],
+  rutas:['id','nombre','descripcion','dias','chofer','created_at','updated_at'],
+  pedidos:['id','ruta_id','cliente_id','cliente_nm','cliente_dir','cliente_tel','fecha','items','subtotal','total','modalidad','metodo','dias_credito','vence','estado','notas','ts','created_at','updated_at'],
+  gastos:['id','descripcion','cat','monto','fecha','proveedor','rnc_proveedor','metodo','ncf_activo','ncf_tipo','ncf','notas','ts','created_at','updated_at'],
+  usuarios:['id','nombre','rol','pin','created_at','updated_at'],
 };
 
 function filterCols(t,obj){const c=SB_COLS[t];if(!c)return obj;const o={};c.forEach(k=>{if(obj[k]!==undefined)o[k]=obj[k];});return o;}
@@ -2787,7 +2790,7 @@ function saveGasto(){
   const ncfOn=document.getElementById('gst-ncf-toggle')?.checked;
   const g={
     id:editId||String(Date.now()),
-    desc,
+    descripcion:desc,
     cat:document.getElementById('gst-cat').value,
     monto,
     fecha:document.getElementById('gst-fecha').value,
@@ -2821,7 +2824,7 @@ function renderGastos(){
   if(!DB.gastos.length){tb.innerHTML='<tr><td colspan="8" style="text-align:center;padding:18px;color:var(--ink4)">Sin gastos registrados.</td></tr>';return;}
   tb.innerHTML=[...DB.gastos].sort((a,b)=>(b.fecha||'')>(a.fecha||'')?1:-1).map(g=>`<tr>
     <td style="font-size:12px;white-space:nowrap">${g.fecha||'—'}</td>
-    <td style="font-weight:600">${g.desc}</td>
+    <td style="font-weight:600">${g.descripcion||g.desc||'—'}</td>
     <td><span class="badge b-gray">${g.cat||'—'}</span></td>
     <td>
       <div style="font-size:12px;color:var(--ink2)">${g.proveedor||'—'}</div>
@@ -2846,7 +2849,7 @@ function renderGastos(){
 function editGasto(id){
   const g=DB.gastos.find(x=>x.id===id);if(!g)return;
   document.getElementById('gst-edit-id').value=g.id;
-  document.getElementById('gst-desc').value=g.desc||'';
+  document.getElementById('gst-desc').value=g.descripcion||g.desc||'';
   document.getElementById('gst-cat').value=g.cat||'Otro';
   document.getElementById('gst-monto').value=g.monto||'';
   document.getElementById('gst-fecha').value=g.fecha||'';
@@ -3079,7 +3082,7 @@ function exportXLSX(which){
   if(which==='all'||which==='facturas')addSheet(DB.facturas.map(f=>({Numero:f.numero,Cliente:f.cliente_nm,Fecha:f.fecha,Vence:f.vence,Total:f.total,Pagado:f.pagado,Saldo:f.saldo,Estado:facStatus(f)})),'Facturas');
   if(which==='all'||which==='cobros')addSheet(DB.cobros.map(c=>({Factura:c.factura_num,Cliente:c.cliente_nm,Monto:c.monto,Metodo:c.metodo,Referencia:c.ref,Fecha:c.fecha})),'Cobros');
   if(which==='all'||which==='clientes')addSheet(DB.clientes.map(c=>({Nombre:c.nombre,Tel:c.tel,Email:c.email,Direccion:c.direccion,Ruta:DB.rutas.find(r=>r.id===c.ruta)?.nombre||''})),'Clientes');
-  if(which==='all'||which==='gastos')addSheet(DB.gastos.map(g=>({Desc:g.desc,Categoria:g.cat,Monto:g.monto,Fecha:g.fecha,Proveedor:g.proveedor,Metodo:g.metodo})),'Gastos');
+  if(which==='all'||which==='gastos')addSheet(DB.gastos.map(g=>({Desc:g.descripcion||g.desc,Categoria:g.cat,Monto:g.monto,Fecha:g.fecha,Proveedor:g.proveedor,Metodo:g.metodo})),'Gastos');
   if(which==='all'||which==='reportes'){
     const facs=filterByPeriod(DB.facturas,null,'fecha');
     addSheet(facs.map(f=>({Numero:f.numero,Cliente:f.cliente_nm,Fecha:f.fecha,Total:f.total,Cobrado:f.pagado,Saldo:f.saldo,Estado:facStatus(f)})),'Reporte');
