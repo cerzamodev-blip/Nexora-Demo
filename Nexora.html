@@ -1404,8 +1404,8 @@ let _sb = null;
 
 function getSB(){
   if(!_sb){
-    const url = SB_URL || localStorage.getItem('nx_sb_url') || '';
-    const key = SB_KEY || localStorage.getItem('nx_sb_key') || '';
+    const url = SB_URL || '';
+    const key = SB_KEY || '';
     if(!url || !key) return null;
     if(window.supabase && window.supabase.createClient){
       _sb = window.supabase.createClient(url, key, {
@@ -1430,8 +1430,8 @@ function getSB(){
 }
 
 // ══ LOCAL STORAGE ══
-const ld=(k,d)=>{try{const v=localStorage.getItem('nx_'+k);return v?JSON.parse(v):d;}catch{return d;}};
-const sv=(k,v)=>{try{localStorage.setItem('nx_'+k,JSON.stringify(v));}catch{}};
+const ld=(k,d)=>{try{const v=localStorage.getItem('nx_'+k);return v?JSON.parse(v):d;}catch(e){return d;}};
+const sv=(k,v)=>{try{localStorage.setItem('nx_'+k,JSON.stringify(v));}catch(e){}};
 
 // ══ DB ══
 let DB={
@@ -2979,8 +2979,8 @@ function loadCfgForms(){
   document.getElementById('cfg-ncf-secuencia').value=c.ncfSecuencia||1;
   updateNcfPreviewCfg();
   // Supabase
-  document.getElementById('cfg-sb-url').value=localStorage.getItem('nx_sb_url')||'';
-  document.getElementById('cfg-sb-key').value=localStorage.getItem('nx_sb_key')||'';
+  document.getElementById('cfg-sb-url').value=SB_URL||'';
+  document.getElementById('cfg-sb-key').value=SB_KEY||'';
 }
 
 function toggleItbisConfig(){
@@ -3060,8 +3060,9 @@ function incrementarNCF(){
 function saveCfgSB(){
   const url=document.getElementById('cfg-sb-url').value.trim();
   const key=document.getElementById('cfg-sb-key').value.trim();
-  localStorage.setItem('nx_sb_url',url);
-  localStorage.setItem('nx_sb_key',key);
+  if(url) SB_URL=url;
+  if(key) SB_KEY=key;
+  try{localStorage.setItem('nx_sb_url',url);localStorage.setItem('nx_sb_key',key);}catch(e){}
   _sb=null; // Force reconnect
   toast('✓ Supabase configurado. Recargando...','ok');
   setTimeout(()=>location.reload(),1500);
