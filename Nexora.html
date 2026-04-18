@@ -1465,17 +1465,46 @@ let DB={
 
 const SB_TABLES={clientes:'clientes',facturas:'facturas',cobros:'cobros',productos:'productos',rutas:'rutas',pedidos:'pedidos',gastos:'gastos',usuarios:'usuarios'};
 const SB_COLS={
-  clientes:['id','nombre','rnc','tel','email','direccion','ruta','credito_dias','notas','activo','ts','created_at','updated_at'],
-  facturas:['id','numero','cliente_id','cliente_nm','cliente_rnc','cliente_razon','fecha','vence','items','subtotal','descuento','itbis','itbisPct','itbisActivo','impuesto','total','ncf','ncfTipo','pagado','saldo','estado','notas','ts','created_at','updated_at'],
-  cobros:['id','factura_id','factura_num','cliente_id','cliente_nm','monto','metodo','ref','fecha','notas','ts','created_at','updated_at'],
+  clientes:['id','nombre','rnc','tel','email','direccion','ruta','credito_dias','notas','activo','created_at','updated_at'],
+  facturas:['id','numero','cliente_id','cliente_nm','cliente_rnc','cliente_razon','fecha','vence','items','subtotal','descuento','itbis','itbis_pct','itbis_activo','impuesto','total','ncf','ncf_tipo','pagado','saldo','estado','notas','created_at','updated_at'],
+  cobros:['id','factura_id','factura_num','cliente_id','cliente_nm','monto','metodo','ref','fecha','notas','created_at','updated_at'],
   productos:['id','nombre','descripcion','unidad','precio','activo','created_at','updated_at'],
   rutas:['id','nombre','descripcion','dias','chofer','created_at','updated_at'],
-  pedidos:['id','ruta_id','cliente_id','cliente_nm','cliente_dir','cliente_tel','fecha','items','subtotal','total','modalidad','metodo','dias_credito','vence','estado','notas','ts','created_at','updated_at'],
-  gastos:['id','descripcion','cat','monto','fecha','proveedor','rnc_proveedor','metodo','ncf_activo','ncf_tipo','ncf','notas','ts','created_at','updated_at'],
+  pedidos:['id','ruta_id','cliente_id','cliente_nm','cliente_dir','cliente_tel','fecha','items','subtotal','total','modalidad','metodo','dias_credito','vence','estado','notas','created_at','updated_at'],
+  gastos:['id','descripcion','cat','monto','fecha','proveedor','rnc_proveedor','metodo','ncf_activo','ncf_tipo','ncf','notas','created_at','updated_at'],
   usuarios:['id','nombre','rol','pin','created_at','updated_at'],
 };
 
-function filterCols(t,obj){const c=SB_COLS[t];if(!c)return obj;const o={};c.forEach(k=>{if(obj[k]!==undefined)o[k]=obj[k];});return o;}
+// Map JS camelCase fields to Supabase snake_case column names
+const FIELD_MAP={
+  itbisPct:'itbis_pct', itbisActivo:'itbis_activo',
+  ncfTipo:'ncf_tipo', diasCredito:'credito_dias'
+};
+const FIELD_MAP_REV=Object.fromEntries(Object.entries(FIELD_MAP).map(([k,v])=>[v,k]));
+
+function filterCols(t,obj){
+  const c=SB_COLS[t];if(!c)return obj;
+  const o={};
+  c.forEach(k=>{
+    // Try direct match first
+    if(obj[k]!==undefined){o[k]=obj[k];return;}
+    // Try camelCase version
+    const camel=FIELD_MAP_REV[k];
+    if(camel&&obj[camel]!==undefined){o[k]=obj[camel];return;}
+    // Try snake_case version  
+    const snake=FIELD_MAP[k];
+    if(snake&&obj[snake]!==undefined){o[k]=obj[snake];}
+  });
+  // Always include these camelCase fields mapped to snake_case for facturas
+  if(t==='facturas'){
+    if(obj.itbisPct!==undefined) o.itbis_pct=obj.itbisPct;
+    if(obj.itbisActivo!==undefined) o.itbis_activo=obj.itbisActivo;
+    if(obj.ncfTipo!==undefined) o.ncf_tipo=obj.ncfTipo;
+    // Remove camelCase duplicates
+    delete o.itbisPct; delete o.itbisActivo; delete o.ncfTipo;
+  }
+  return o;
+}
 
 let _sync=0;
 function syncBusy(){_sync++;showSyncDot();}
