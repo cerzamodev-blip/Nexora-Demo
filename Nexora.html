@@ -43,6 +43,18 @@ body{height:100%;font-family:'Inter',sans-serif;background:var(--bg);color:var(-
 input,select,textarea,button{font-family:'Inter',sans-serif;font-size:inherit}
 ::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#CBD5E1;border-radius:2px}
 
+/* ══ SUPABASE STATUS ══ */
+.sb-status-bar{display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:var(--rsm);font-size:12px;margin-bottom:14px;border:1px solid}
+.sb-status-bar.connecting{background:var(--ice-l);border-color:rgba(14,165,233,.3);color:var(--ice-d)}
+.sb-status-bar.connected{background:rgba(13,148,136,.08);border-color:rgba(13,148,136,.3);color:var(--teal-d)}
+.sb-status-bar.error{background:var(--red-l);border-color:rgba(220,38,38,.3);color:var(--red)}
+.sb-status-bar.offline{background:var(--bg);border-color:var(--divider);color:var(--ink4)}
+.sb-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.sb-dot.connecting{background:var(--ice);animation:gpsPulse 1s infinite}
+.sb-dot.connected{background:var(--teal)}
+.sb-dot.error{background:var(--red)}
+.sb-dot.offline{background:var(--ink4)}
+
 /* ══ LOGIN ══ */
 #login-screen{position:fixed;inset:0;background:linear-gradient(135deg,#0F172A 0%,#1E3A5F 50%,#0C4A6E 100%);display:flex;align-items:center;justify-content:center;z-index:9999;padding:20px}
 .login-box{background:rgba(255,255,255,.97);border-radius:20px;padding:38px 32px;width:100%;max-width:380px;box-shadow:0 20px 60px rgba(0,0,0,.35)}
@@ -414,6 +426,10 @@ td{padding:10px 12px;font-size:13px;color:var(--ink2)}
     </div>
     <div class="login-title">Bienvenido</div>
     <div class="login-sub">Sistema de distribución de hielo</div>
+    <div class="sb-status-bar connecting" id="sb-status-bar">
+      <div class="sb-dot connecting" id="sb-dot"></div>
+      <span id="sb-status-txt">Conectando con Supabase...</span>
+    </div>
     <div class="login-users" id="login-users-list"></div>
     <div class="pin-field" id="pin-field">
       <div class="pin-label">PIN de acceso</div>
@@ -1471,10 +1487,23 @@ async function sbLoadAll(){
   try{
     const tables=Object.keys(SB_TABLES);
     const results=await Promise.all(tables.map(k=>sb.from(SB_TABLES[k]).select('*').order('created_at',{ascending:true})));
-    tables.forEach((k,i)=>{if(!results[i].error){DB[k]=results[i].data||[];sv(k,DB[k]);}});
+    let hasError=false;
+    tables.forEach((k,i)=>{
+      if(results[i].error){
+        console.warn('sbLoadAll error on',k,results[i].error.message);
+        hasError=true;
+      } else {
+        DB[k]=results[i].data||[];
+        sv(k,DB[k]);
+      }
+    });
     const{data:cfgRow}=await sb.from('config').select('*').eq('id','main').maybeSingle();
     if(cfgRow&&cfgRow.data){DB.config={...DB.config,...cfgRow.data};sv('config',DB.config);}
-  }catch(e){console.warn('sbLoadAll:',e);}
+    if(!hasError) setSBStatus('connected','✓ Conectado — '+DB.usuarios.length+' usuarios, '+DB.clientes.length+' clientes');
+  }catch(e){
+    console.warn('sbLoadAll:',e);
+    setSBStatus('error','Error al cargar datos: '+e.message);
+  }
 }
 
 function toPlain(obj){return JSON.parse(JSON.stringify(obj));}
@@ -1488,7 +1517,12 @@ async function sbUpsert(table,obj){
     syncBusy();
     const{error}=await sb.from(table).upsert(row,{onConflict:'id'});
     syncDone();
-    if(error)console.warn('sbUpsert:',table,error.message);
+    if(error){
+      console.warn('sbUpsert:',table,error.message);
+      setSBStatus('error','Error guardando en '+table+': '+error.message);
+    } else {
+      setSBStatus('connected','✓ Guardado en Supabase');
+    }
   }catch(e){syncDone();console.warn('sbUpsert exception:',e.message);}
 }
 
@@ -1564,7 +1598,12 @@ function bootstrapAdmin(){
 function renderLoginUsers(){
   const el=document.getElementById('login-users-list');
   if(!DB.usuarios.length){
-    el.innerHTML=`<div style="text-align:center;padding:20px;color:var(--ink4);font-size:13px">Sin usuarios.<br><button class="btn p" style="margin-top:12px;width:100%;justify-content:center" onclick="bootstrapAdmin()">Crear administrador</button></div>`;
+    el.innerHTML=`<div style="text-align:center;padding:20px;color:var(--ink4);font-size:13px">
+      Sin usuarios registrados.<br>
+      <div style="font-size:11px;color:var(--ink4);margin:8px 0">Asegúrate de que Supabase está conectado y ejecutaste el SQL.</div>
+      <button class="btn p" style="margin-top:8px;width:100%;justify-content:center" onclick="bootstrapAdmin()">Crear administrador inicial</button>
+      <button class="btn" style="margin-top:6px;width:100%;justify-content:center" onclick="init()">🔄 Reintentar conexión</button>
+    </div>`;
     document.getElementById('pin-field').classList.remove('show');
     document.getElementById('btn-ingresar').disabled=true;
     return;
@@ -3057,15 +3096,32 @@ function incrementarNCF(){
   sv('config',DB.config);sbSaveCfg();
 }
 
-function saveCfgSB(){
+async function saveCfgSB(){
   const url=document.getElementById('cfg-sb-url').value.trim();
   const key=document.getElementById('cfg-sb-key').value.trim();
-  if(url) SB_URL=url;
-  if(key) SB_KEY=key;
+  if(!url||!key){toast('Ingresa URL y Anon Key','err');return;}
+  SB_URL=url; SB_KEY=key; _sb=null;
   try{localStorage.setItem('nx_sb_url',url);localStorage.setItem('nx_sb_key',key);}catch(e){}
-  _sb=null; // Force reconnect
-  toast('✓ Supabase configurado. Recargando...','ok');
-  setTimeout(()=>location.reload(),1500);
+  toast('Probando conexión...','');
+  setSBStatus('connecting','Probando nueva conexión...');
+  const sb=getSB();
+  if(!sb){toast('Error al crear cliente Supabase','err');return;}
+  try{
+    const {data,error}=await sb.from('usuarios').select('id').limit(1);
+    if(error){
+      toast('Error: '+error.message,'err');
+      setSBStatus('error','Error: '+error.message);
+      return;
+    }
+    setSBStatus('connecting','Conexión OK. Cargando datos...');
+    await sbLoadAll();
+    toast('✓ Supabase conectado correctamente','ok');
+    setSBStatus('connected','✓ Conectado — '+DB.usuarios.length+' usuarios');
+    renderLoginUsers();
+  }catch(e){
+    toast('Error de conexión: '+e.message,'err');
+    setSBStatus('error','Error: '+e.message);
+  }
 }
 
 function renderSysInfo(){
@@ -3578,14 +3634,75 @@ function copiarLinkChofer(){
     .catch(()=>toast('Archivo: nexora-chofer.html'));
 }
 
+// ══ SUPABASE STATUS UI ══
+function setSBStatus(state, msg){
+  const bar=document.getElementById('sb-status-bar');
+  const dot=document.getElementById('sb-dot');
+  const txt=document.getElementById('sb-status-txt');
+  if(!bar) return;
+  bar.className='sb-status-bar '+state;
+  if(dot){dot.className='sb-dot '+state;}
+  if(txt) txt.textContent=msg;
+  // Also update topbar sync dot
+  const syncDot=document.getElementById('sb-sync-dot');
+  if(syncDot){
+    if(state==='connected'){
+      syncDot.style.display='flex';
+      syncDot.style.background='rgba(13,148,136,.1)';
+      syncDot.style.color='var(--teal)';
+      syncDot.style.borderColor='rgba(13,148,136,.2)';
+      syncDot.textContent='✓ Supabase';
+    } else if(state==='error'||state==='offline'){
+      syncDot.style.display='flex';
+      syncDot.style.background='var(--red-l)';
+      syncDot.style.color='var(--red)';
+      syncDot.style.borderColor='rgba(220,38,38,.2)';
+      syncDot.textContent='✗ Sin conexión';
+    } else {
+      syncDot.style.display='flex';
+      syncDot.textContent='⟳ Conectando';
+    }
+  }
+}
+
 // ══ INIT ══
 async function init(){
   showLoadingScreen(true);
-  // Load from localStorage first (instant)
+  setSBStatus('connecting','Conectando con Supabase...');
+
+  // Load from localStorage first (instant fallback)
   ['clientes','facturas','cobros','productos','rutas','pedidos','gastos','usuarios'].forEach(k=>{DB[k]=ld(k,DB[k]);});
   const cfgLocal=ld('config',null);if(cfgLocal)DB.config={...DB.config,...cfgLocal};
-  // Then try Supabase
-  try{await sbLoadAll();}catch(e){console.warn('Supabase init error:',e);}
+
+  // Test Supabase connection
+  const sb=getSB();
+  if(!sb){
+    setSBStatus('error','Error: URL o Anon Key de Supabase inválidos');
+    showLoadingScreen(false);
+    renderLoginUsers();
+    return;
+  }
+
+  try{
+    setSBStatus('connecting','Verificando conexión...');
+    // Quick ping test
+    const {data, error} = await sb.from('usuarios').select('id').limit(1);
+    if(error){
+      console.error('Supabase connection error:', error);
+      setSBStatus('error','Error Supabase: '+error.message);
+      showLoadingScreen(false);
+      renderLoginUsers();
+      return;
+    }
+    // Connection OK — load all data
+    setSBStatus('connecting','Cargando datos...');
+    await sbLoadAll();
+    setSBStatus('connected','✓ Conectado a Supabase — '+DB.usuarios.length+' usuarios');
+  }catch(e){
+    console.error('Supabase init error:',e);
+    setSBStatus('error','Sin conexión — modo local activo');
+  }
+
   showLoadingScreen(false);
   renderLoginUsers();
 }
