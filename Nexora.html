@@ -945,7 +945,6 @@ CREATE TABLE IF NOT EXISTS pedidos (id text PRIMARY KEY, ruta_id text, cliente_i
     <div class="ph-left"><div class="ph-title">Tracking de Choferes</div><div class="ph-sub">GPS en tiempo real</div></div>
     <div class="ph-acts">
       <button class="btn" id="track-refresh-btn" onclick="trackRefresh()">🔄 Actualizar</button>
-      <button class="btn p" onclick="openNuevaRuta()">+ Nueva ruta</button>
     </div>
   </div>
   <!-- Status bar -->
@@ -1259,13 +1258,17 @@ CREATE TABLE IF NOT EXISTS pedidos (id text PRIMARY KEY, ruta_id text, cliente_i
     </div>
   </div>
 
-  <!-- Ruta + fecha entrega -->
+  <!-- Chofer + fecha entrega -->
   <div class="frow" style="margin-top:4px">
     <div class="fg">
-      <div class="flbl">Ruta asignada</div>
-      <select class="fsl" id="ped-ruta">
-        <option value="">— Sin ruta —</option>
+      <div class="flbl">Asignar a chofer</div>
+      <select class="fsl" id="ped-chofer" onchange="onPedChoferChange(this.value)">
+        <option value="">— Sin chofer —</option>
       </select>
+      <input type="hidden" id="ped-ruta">
+      <div id="ped-ruta-preview" style="display:none;font-size:11px;color:var(--ink3);margin-top:4px;padding:4px 8px;background:var(--ice-l);border-radius:6px;border:1px solid rgba(14,165,233,.15)">
+        🚚 Ruta: <span id="ped-ruta-nm"></span>
+      </div>
     </div>
     <div class="fg">
       <div class="flbl">Fecha de entrega</div>
@@ -1470,7 +1473,7 @@ const SB_COLS={
   cobros:['id','factura_id','factura_num','cliente_id','cliente_nm','monto','metodo','ref','fecha','notas','created_at','updated_at'],
   productos:['id','nombre','descripcion','unidad','precio','activo','created_at','updated_at'],
   rutas:['id','nombre','descripcion','dias','chofer','created_at','updated_at'],
-  pedidos:['id','ruta_id','cliente_id','cliente_nm','cliente_dir','cliente_tel','fecha','items','subtotal','total','modalidad','metodo','dias_credito','vence','estado','notas','created_at','updated_at'],
+  pedidos:['id','ruta_id','chofer_id','chofer_nm','cliente_id','cliente_nm','cliente_dir','cliente_tel','fecha','items','subtotal','total','modalidad','metodo','dias_credito','vence','estado','notas','created_at','updated_at'],
   gastos:['id','descripcion','cat','monto','fecha','proveedor','rnc_proveedor','metodo','ncf_activo','ncf_tipo','ncf','notas','created_at','updated_at'],
   usuarios:['id','nombre','rol','pin','created_at','updated_at'],
 };
@@ -2423,6 +2426,7 @@ function renderRutas(){
           ${p.metodo&&p.modalidad!=='credito'?`<span class="ped-pill pp-metodo">${p.metodo}</span>`:''}
           ${p.modalidad==='credito'&&p.vence?`<span class="ped-pill pp-credito">Vence ${p.vence}</span>`:''}
           ${ruta?`<span class="ped-pill pp-ruta">🚚 ${ruta.nombre}</span>`:''}
+          ${p.chofer_nm?`<span class="ped-pill" style="background:rgba(14,165,233,.1);color:var(--ice-d)">👤 ${p.chofer_nm}</span>`:'<span class="ped-pill" style="background:var(--warn-l);color:var(--warn)">⚠️ Sin chofer</span>'}
         </div>
         <div class="ped-prods">
           ${(p.items||[]).map(it=>`<div class="ped-prod-row">
@@ -2470,10 +2474,34 @@ function openNuevoPedido(){
   // Populate selects
   const clSel=document.getElementById('ped-cliente');
   clSel.innerHTML='<option value="">— Seleccionar cliente existente —</option>'+DB.clientes.map(c=>`<option value="${c.id}">${c.nombre}${c.tel?' · '+c.tel:''}</option>`).join('');
-  const rutSel=document.getElementById('ped-ruta');
-  rutSel.innerHTML='<option value="">— Sin ruta —</option>'+DB.rutas.map(r=>`<option value="${r.id}">${r.nombre}</option>`).join('');
+  populatePedChoferSel();
   renderPedItems();
   openM('m-nuevo-pedido');
+}
+
+function populatePedChoferSel(selectedChoferId=''){
+  const sel=document.getElementById('ped-chofer');
+  if(!sel) return;
+  sel.innerHTML='<option value="">— Sin chofer —</option>'+
+    DB.usuarios.map(u=>`<option value="${u.id}"${u.id===selectedChoferId?' selected':''}>${u.nombre} (${u.rol})</option>`).join('');
+  // Trigger preview update
+  if(selectedChoferId) onPedChoferChange(selectedChoferId);
+}
+
+function onPedChoferChange(choferId){
+  const chofer=DB.usuarios.find(u=>u.id===choferId);
+  const ruta=chofer?DB.rutas.find(r=>r.chofer===chofer.nombre):null;
+  const rutaInput=document.getElementById('ped-ruta');
+  const rutaPreview=document.getElementById('ped-ruta-preview');
+  const rutaNm=document.getElementById('ped-ruta-nm');
+  if(ruta){
+    if(rutaInput) rutaInput.value=ruta.id;
+    if(rutaPreview) rutaPreview.style.display='block';
+    if(rutaNm) rutaNm.textContent=ruta.nombre;
+  } else {
+    if(rutaInput) rutaInput.value='';
+    if(rutaPreview) rutaPreview.style.display='none';
+  }
 }
 
 function onPedClienteChange(clId){
@@ -2583,9 +2611,14 @@ function savePedido(){
   const cl=DB.clientes.find(c=>c.id===clId)||{};
   const sub=pedItems.reduce((s,it)=>s+(it.cant||1)*(it.precio||0),0);
   const editId=document.getElementById('ped-edit-id').value;
+  const choferId=document.getElementById('ped-chofer')?.value||'';
+  const choferUser=DB.usuarios.find(u=>u.id===choferId)||{};
+  const rutaId=document.getElementById('ped-ruta').value;
   const p={
     id:editId||String(Date.now()),
-    ruta_id:document.getElementById('ped-ruta').value,
+    ruta_id:rutaId,
+    chofer_id:choferId,
+    chofer_nm:choferUser.nombre||'',
     cliente_id:clId,cliente_nm:cl.nombre||'',
     cliente_dir:cl.direccion||'',cliente_tel:cl.tel||'',
     fecha:document.getElementById('ped-fecha').value,
@@ -2597,7 +2630,6 @@ function savePedido(){
     vence:pedModalidad==='credito'?document.getElementById('ped-vence-cred').value:'',
     estado:'pendiente',
     notas:document.getElementById('ped-notas').value,
-    ts:Date.now()
   };
   if(editId){DB.pedidos=DB.pedidos.map(x=>x.id===editId?{...x,...p,estado:x.estado}:x);}
   else{DB.pedidos.push(p);}
@@ -2622,8 +2654,16 @@ function editPedido(id){
   }
   const clSel=document.getElementById('ped-cliente');
   clSel.innerHTML='<option value="">— Seleccionar —</option>'+DB.clientes.map(c=>`<option value="${c.id}"${c.id===p.cliente_id?' selected':''}>${c.nombre}</option>`).join('');
-  const rutSel=document.getElementById('ped-ruta');
-  rutSel.innerHTML='<option value="">— Sin ruta —</option>'+DB.rutas.map(r=>`<option value="${r.id}"${r.id===p.ruta_id?' selected':''}>${r.nombre}</option>`).join('');
+  // Restore chofer selector
+  populatePedChoferSel(p.chofer_id||'');
+  // Restore ruta hidden field
+  const rutaInput=document.getElementById('ped-ruta');
+  if(rutaInput) rutaInput.value=p.ruta_id||'';
+  const rutaPreview=document.getElementById('ped-ruta-preview');
+  const rutaNm=document.getElementById('ped-ruta-nm');
+  const ruta=DB.rutas.find(r=>r.id===p.ruta_id);
+  if(ruta&&rutaPreview){rutaPreview.style.display='block';if(rutaNm)rutaNm.textContent=ruta.nombre;}
+  else if(rutaPreview){rutaPreview.style.display='none';}
   document.getElementById('ped-dir-preview').style.display='none';
   document.getElementById('ped-nuevo-cl').style.display='none';
   onPedClienteChange(p.cliente_id);
@@ -3514,8 +3554,12 @@ function renderTrackPanel(){
         const isOnline=gps&&(now-new Date(gps.updated_at||0).getTime())<3*60*1000;
         // Route assigned to this user
         const ruta=trackRutas.find(r=>r.chofer===u.nombre)||null;
-        // Pedidos for their route today
-        const pedsCh=ruta?trackPedidos.filter(p=>p.ruta_id===ruta.id):[];
+        // Pedidos assigned directly to this chofer OR via their ruta
+        const pedsCh=trackPedidos.filter(p=>
+          p.chofer_id===u.id ||
+          p.chofer_nm===u.nombre ||
+          (ruta&&p.ruta_id===ruta.id)
+        );
         const cobsCh=trackCobs.filter(c=>c.chofer_id===u.id||c.chofer_nm===u.nombre);
         const totCob=cobsCh.reduce((s,c)=>s+(c.monto||0),0);
         const entregados=pedsCh.filter(p=>p.estado==='entregado').length;
@@ -3561,15 +3605,22 @@ function renderTrackPanel(){
       .sort((a,b)=>(order[a.estado||'pendiente']||0)-(order[b.estado||'pendiente']||0))
       .map(p=>{
         const est=p.estado||'pendiente';
+        // Use chofer_id/chofer_nm directly from pedido (new approach)
+        // Fall back to ruta.chofer for backward compatibility
         const ruta=trackRutas.find(r=>r.id===p.ruta_id);
-        const gpsChofer=ruta?trackChoferes.find(g=>g.chofer_nm===ruta.chofer):null;
+        const choferNm=p.chofer_nm||ruta?.chofer||'';
+        const gpsChofer=trackChoferes.find(g=>
+          (p.chofer_id&&g.chofer_id===p.chofer_id)||
+          (choferNm&&g.chofer_nm===choferNm)
+        );
         const choferOnline=gpsChofer&&(now-new Date(gpsChofer.updated_at||0).getTime())<3*60*1000;
-        return`<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--divider);font-size:12px;cursor:pointer" onclick="trackFocusChofer('','${ruta?.chofer||''}','${gpsChofer?.chofer_id||''}')">
+        return`<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--divider);font-size:12px;cursor:pointer" onclick="trackFocusChofer('${p.chofer_id||''}','${choferNm}','${gpsChofer?.chofer_id||p.chofer_id||''}')">
           <span style="font-size:15px;flex-shrink:0">${estIcons[est]||'⏳'}</span>
           <div style="flex:1;min-width:0">
             <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.cliente_nm||'—'}</div>
             <div style="font-size:10px;color:var(--ink4);margin-top:1px">
-              ${ruta?`🚚 ${ruta.nombre}`:''}${ruta?.chofer?` · 👤 ${ruta.chofer} ${choferOnline?'🟢':'🔴'}`:''}
+              ${choferNm?`👤 ${choferNm} ${choferOnline?'🟢':'🔴'}`:'<span style="color:var(--warn)">Sin chofer asignado</span>'}
+              ${ruta?` · 🚚 ${ruta.nombre}`:''}
             </div>
           </div>
           <div style="text-align:right;flex-shrink:0">
